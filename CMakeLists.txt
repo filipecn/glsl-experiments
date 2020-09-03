@@ -24,6 +24,7 @@ include(ConfigCompilerFlags)
 include(ExternalProject)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/ext")
 include(ponos)
+include(json11)
 ##########################################
 ##               sources                ##
 ##########################################
@@ -36,6 +37,6 @@ target_compile_definitions(glsl_editor PUBLIC
         -DTEXTURES_PATH="${CMAKE_CURRENT_SOURCE_DIR}"
         )
 #add_dependencies(glsl_editor ponos)
-target_include_directories(glsl_editor PUBLIC ${PONOS_INCLUDES})
-target_link_libraries(glsl_editor  ${PONOS_LIBRARIES})
+target_include_directories(glsl_editor PUBLIC ${PONOS_INCLUDES} ${JSON11_INCLUDES})
+target_link_libraries(glsl_editor  ${PONOS_LIBRARIES} ${JSON11_LIBRARIES})
 
