@@ -23,6 +23,7 @@ struct Material {
 layout(location = 1) uniform Light light;
 layout(location = 6) uniform Material material;
 layout(location = 10) uniform vec3 cameraPosition;
+layout(location = 14) uniform vec2 screenResolution;
 
 void main() {
   // Blinn-Phong

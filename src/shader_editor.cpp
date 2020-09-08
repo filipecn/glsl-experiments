@@ -45,6 +45,32 @@ public:
   Json to_json() const { return Json::array{x, y, z}; }
 };
 
+struct MeshObject {
+  MeshObject() : scale(vec3(1, 1, 1)) {
+    glGenVertexArrays(1, &VAO);
+  }
+  void draw() {
+    glEnable(GL_DEPTH_TEST);
+    glDrawElements(index_buffer_.bufferDescriptor.elementType,
+                   index_buffer_.bufferDescriptor.elementCount *
+                       index_buffer_.bufferDescriptor.elementSize,
+                   GL_UNSIGNED_INT, 0);
+  }
+  void setMesh(ponos::RawMesh &mesh) {
+    std::vector<float> vertex_data;
+    std::vector<u32> index_data;
+    setup_buffer_data_from_mesh(mesh, vertex_data, index_data);
+    create_buffer_description_from_mesh(mesh, vertex_buffer_.bufferDescriptor, index_buffer_.bufferDescriptor);
+    glBindVertexArray(VAO);
+    vertex_buffer_.set(vertex_data.data());
+    index_buffer_.set(index_data.data());
+  }
+  GLuint VAO{};
+  VertexBuffer vertex_buffer_;
+  IndexBuffer index_buffer_;
+  vec3 scale;
+};
+
 struct Light {
   vec3 direction;
   vec3 point;
@@ -221,8 +247,8 @@ public:
     program.addUniform("model", 11);
     program.addUniform("view", 12);
     program.addUniform("projection", 13);
+    program.addUniform("screenResolution", 14);
     // setup scene
-    glGenVertexArrays(1, &VAO);
     setupMesh();
     buildShader();
   }
@@ -233,10 +259,10 @@ public:
     showEditor(vertex_editor, "Vertex Shader", &show_vertex_editor);
     showEditor(fragment_editor, "Fragment Shader", &show_fragment_editor);
     // render object
-    glBindVertexArray(VAO);
-    vertex_buffer_.bind();
-    index_buffer_.bind();
-    vertex_buffer_.locateAttributes(program);
+    glBindVertexArray(mesh.VAO);
+    mesh.vertex_buffer_.bind();
+    mesh.index_buffer_.bind();
+    mesh.vertex_buffer_.locateAttributes(program);
 
     program.use();
     program.setUniform("Light.point", light.point);
@@ -248,18 +274,16 @@ public:
     program.setUniform("Material.kDiffuse", material.kDiffuse);
     program.setUniform("Material.kSpecular", material.kSpecular);
     program.setUniform("Material.shininess", material.shininess);
-    program.setUniform("model", ponos::Transform());
+    program.setUniform("model", ponos::transpose(ponos::scale(mesh.scale.x, mesh.scale.y, mesh.scale.z).matrix()));
     program.setUniform("view",
                        ponos::transpose(camera->getViewTransform().matrix()));
     program.setUniform("projection",
                        ponos::transpose(camera->getProjectionTransform().matrix()));
     program.setUniform("cameraPosition", camera->getPosition());
+    program.setUniform("screenResolution",
+                       ponos::vec2(this->app_->viewports[0].width, this->app_->viewports[0].height));
 
-    glEnable(GL_DEPTH_TEST);
-    glDrawElements(index_buffer_.bufferDescriptor.elementType,
-                   index_buffer_.bufferDescriptor.elementCount *
-                       index_buffer_.bufferDescriptor.elementSize,
-                   GL_UNSIGNED_INT, 0);
+    mesh.draw();
     light_object.light = &light;
     light_object.render(camera);
   }
@@ -304,6 +328,12 @@ public:
     showConfigFileButtons();
     showLoadFile(vertex_editor, "Open Vertex Shader", "OpenFileVSKey", ".vert", show_vertex_editor);
     showLoadFile(fragment_editor, "Open Fragment Shader", "OpenFileFSKey", ".frag", show_fragment_editor);
+    ImGui::Separator();
+    ImGui::Text("Mesh\n");
+    int mesh_option = 0;
+    if (ImGui::Combo("Mesh", (int *) &mesh_option, "Sphere\0Plane\0Terrain\0"))
+      setupMesh(mesh_option);
+    ImGui::SliderFloat3("Scale", &mesh.scale[0], 0.0001, 100);
     ImGui::Separator();
     ImGui::Text("Light\n");
     ImGui::SliderFloat3("Position", &light.point.x, -5, 5);
@@ -356,9 +386,11 @@ public:
       igfd::ImGuiFileDialog::Instance()->CloseDialog("LoadConfigKey");
     }
     if (igfd::ImGuiFileDialog::Instance()->FileDialog("SaveConfigKey")) {
-      if (igfd::ImGuiFileDialog::Instance()->IsOk)
-        ponos::FileSystem::writeFile(igfd::ImGuiFileDialog::Instance()->GetFilePathName(),
-                                     Json(Json::object{{"light", light}, {"material", material}}).dump());
+      if (igfd::ImGuiFileDialog::Instance()->IsOk) {
+        config_path = igfd::ImGuiFileDialog::Instance()->GetFilePathName(),
+            ponos::FileSystem::writeFile(config_path.fullName(),
+                                         Json(Json::object{{"light", light}, {"material", material}}).dump());
+      }
       igfd::ImGuiFileDialog::Instance()->CloseDialog("SaveConfigKey");
     }
   }
@@ -442,17 +474,25 @@ public:
     return true;
   }
 
-  void setupMesh() {
-    auto mesh = ponos::RawMeshes::icosphere(ponos::point3(), 1., 3, true, true);
-//    mesh->buildInterleavedData();
-//    auto mesh = ponos::RawMeshes::plane(ponos::Plane::XZ(), ponos::point3(), ponos::vec3(1, 0, 0), 1);
-    std::vector<float> vertex_data;
-    std::vector<u32> index_data;
-    setup_buffer_data_from_mesh(*mesh, vertex_data, index_data);
-    create_buffer_description_from_mesh(*mesh, vertex_buffer_.bufferDescriptor, index_buffer_.bufferDescriptor);
-    glBindVertexArray(VAO);
-    vertex_buffer_.set(vertex_data.data());
-    index_buffer_.set(index_data.data());
+  void setupMesh(int mesh_option = 0) {
+    static int last_option = -1;
+    if (last_option != mesh_option) {
+      last_option = mesh_option;
+      ponos::RawMeshSPtr raw_mesh;
+      switch (mesh_option) {
+      case 0:raw_mesh = ponos::RawMeshes::icosphere(ponos::point3(), 1., 3, true, true);
+        break;
+      case 1:raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XZ(), ponos::point3(), ponos::vec3(1, 0, 0), 1);
+        break;
+      case 2:raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XZ(), ponos::point3(), ponos::vec3(1, 0, 0), 20);
+        for (int i = 0; i <= 20; ++i)
+          for (int j = 0; j <= 20; ++j)
+            raw_mesh->positions[i * 21 * 3 + j * 3 + 1] = ponos::Perlin::at(ponos::point2(i, j) * 0.05);
+        break;
+      default: break;
+      };
+      mesh.setMesh(*raw_mesh);
+    }
   }
 
   // gui
@@ -463,9 +503,7 @@ public:
   Light light;
   Material material;
   // object
-  GLuint VAO{};
-  VertexBuffer vertex_buffer_;
-  IndexBuffer index_buffer_;
+  MeshObject mesh;
   // shader
   Shader vertex_shader;
   Shader fragment_shader;
