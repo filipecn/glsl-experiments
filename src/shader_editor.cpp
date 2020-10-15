@@ -31,6 +31,22 @@
 using namespace json11;
 using namespace circe::gl;
 
+struct Model {
+  circe::gl::Program program;
+  circe::Material material;
+  ponos::Transform transform;
+  // new way
+  circe::gl::VertexArrayObject vao;
+  circe::gl::VertexBuffer vb;
+  circe::gl::IndexBuffer ib;
+  void draw() {
+    vao.bind();
+    vb.bind();
+    ib.bind();
+    ib.draw();
+  }
+};
+
 class vec3 : public ponos::vec3 {
 public:
   vec3() {
@@ -42,33 +58,7 @@ public:
     this->z = z;
 
   }
-  Json to_json() const { return Json::array{x, y, z}; }
-};
-
-struct MeshObject {
-  MeshObject() : scale(vec3(1, 1, 1)) {
-    glGenVertexArrays(1, &VAO);
-  }
-  void draw() {
-    glEnable(GL_DEPTH_TEST);
-    glDrawElements(index_buffer_.bufferDescriptor.elementType,
-                   index_buffer_.bufferDescriptor.elementCount *
-                       index_buffer_.bufferDescriptor.elementSize,
-                   GL_UNSIGNED_INT, 0);
-  }
-  void setMesh(ponos::RawMesh &mesh) {
-    std::vector<float> vertex_data;
-    std::vector<u32> index_data;
-    setup_buffer_data_from_mesh(mesh, vertex_data, index_data);
-    create_buffer_description_from_mesh(mesh, vertex_buffer_.bufferDescriptor, index_buffer_.bufferDescriptor);
-    glBindVertexArray(VAO);
-    vertex_buffer_.set(vertex_data.data());
-    index_buffer_.set(index_data.data());
-  }
-  GLuint VAO{};
-  VertexBuffer vertex_buffer_;
-  IndexBuffer index_buffer_;
-  vec3 scale;
+  [[nodiscard]] Json to_json() const { return Json::array{x, y, z}; }
 };
 
 struct Light {
@@ -77,7 +67,7 @@ struct Light {
   vec3 ambient;
   vec3 diffuse;
   vec3 specular;
-  [[maybe_unused]] Json to_json() const {
+  [[maybe_unused]] [[nodiscard]] Json to_json() const {
     return Json::object{
         {"direction", direction},
         {"point", point},
@@ -92,7 +82,7 @@ struct Material {
   vec3 kDiffuse;
   vec3 kSpecular;
   float shininess{};
-  [[maybe_unused]] Json to_json() const {
+  [[maybe_unused]] [[nodiscard]] Json to_json() const {
     return Json::object{
         {"kAmbient", kAmbient},
         {"kDiffuse", kDiffuse},
@@ -124,24 +114,23 @@ struct LightObject {
                      "", GL_FRAGMENT_SHADER);
     program.attach(vs_shader);
     program.attach(fs_shader);
-    program.addVertexAttribute("position", 0);
-    program.addUniform("color", 1);
-    program.addUniform("model", 11);
-    program.addUniform("view", 12);
-    program.addUniform("projection", 13);
     FATAL_ASSERT(program.link());
     // setup point mesh
-    glGenVertexArrays(1, &VAO);
-    auto mesh = ponos::RawMeshes::icosphere(ponos::point3(), 1., 3, false, false);
-    std::vector<float> vertex_data;
-    std::vector<u32> index_data;
-    setup_buffer_data_from_mesh(*mesh, vertex_data, index_data);
-    create_buffer_description_from_mesh(*mesh, vertex_buffer_.bufferDescriptor, index_buffer_.bufferDescriptor);
-    glBindVertexArray(VAO);
-    vertex_buffer_.set(vertex_data.data());
-    index_buffer_.set(index_data.data());
+    {
+      auto mesh = ponos::RawMeshes::icosphere(ponos::point3(), 1., 3, false, false);
+      std::vector<float> vertex_data;
+      std::vector<u32> index_data;
+      setup_buffer_data_from_mesh(*mesh, vertex_data, index_data);
+      model.vb.attributes.push<ponos::point3>("position");
+      // upload data
+      model.vb = vertex_data;
+      model.ib = index_data;
+      model.ib.element_count = index_data.size() / 3;
+      // bind attributes
+      model.vao.bind();
+      model.vb.bindAttributeFormats();
+    }
     // setup direction mesh
-    glGenVertexArrays(1, &VAO_D);
     ponos::RawMesh mesh_d;
     mesh_d.primitiveType = ponos::GeometricPrimitiveType::LINES;
     mesh_d.positionDescriptor.elementSize = 3;
@@ -154,10 +143,13 @@ struct LightObject {
     std::vector<float> vertex_data_d;
     std::vector<u32> index_data_d;
     setup_buffer_data_from_mesh(mesh_d, vertex_data_d, index_data_d);
-    create_buffer_description_from_mesh(mesh_d, vertex_buffer_d.bufferDescriptor, index_buffer_d.bufferDescriptor);
-    glBindVertexArray(VAO_D);
-    vertex_buffer_d.set(vertex_data_d.data());
-    index_buffer_d.set(index_data_d.data());
+    // upload data
+    model_d.vb = vertex_data_d;
+    model_d.ib = index_data_d;
+    model_d.ib.element_count = 1;
+    // bind attributes
+    model_d.vao.bind();
+    model_d.vb.bindAttributeFormats();
   }
   void render(circe::CameraInterface *camera) {
     if (show_point)
@@ -166,11 +158,6 @@ struct LightObject {
       drawDirection(camera);
   }
   void drawPoint(circe::CameraInterface *camera) {
-    glBindVertexArray(VAO);
-    vertex_buffer_.bind();
-    index_buffer_.bind();
-    vertex_buffer_.locateAttributes(program);
-
     program.use();
     program.setUniform("model", ponos::transpose(
         (ponos::translate(light->point) * ponos::scale(0.2, 0.2, 0.2)).matrix()));
@@ -179,19 +166,10 @@ struct LightObject {
     program.setUniform("projection",
                        ponos::transpose(camera->getProjectionTransform().matrix()));
     program.setUniform("color", light->ambient);
-
     glEnable(GL_DEPTH_TEST);
-    glDrawElements(index_buffer_.bufferDescriptor.elementType,
-                   index_buffer_.bufferDescriptor.elementCount *
-                       index_buffer_.bufferDescriptor.elementSize,
-                   GL_UNSIGNED_INT, 0);
+    model.draw();
   }
   void drawDirection(circe::CameraInterface *camera) {
-    glBindVertexArray(VAO_D);
-    vertex_buffer_d.bind();
-    index_buffer_d.bind();
-    vertex_buffer_d.locateAttributes(program);
-
     f32 scale_factor = 10;
     program.use();
     program.setUniform("model",
@@ -203,51 +181,68 @@ struct LightObject {
     program.setUniform("projection",
                        ponos::transpose(camera->getProjectionTransform().matrix()));
     program.setUniform("color", light->ambient);
-
     glEnable(GL_DEPTH_TEST);
-    glDrawElements(index_buffer_d.bufferDescriptor.elementType,
-                   index_buffer_d.bufferDescriptor.elementCount *
-                       index_buffer_d.bufferDescriptor.elementSize,
-                   GL_UNSIGNED_INT, 0);
+    model_d.draw();
   }
-  GLuint VAO{};
-  VertexBuffer vertex_buffer_;
-  IndexBuffer index_buffer_;
-  GLuint VAO_D{};
-  VertexBuffer vertex_buffer_d;
-  IndexBuffer index_buffer_d;
+  Model model;
+  Model model_d;
   Program program;
   Light *light{nullptr};
   bool show_point{true};
   bool show_direction{true};
 };
 
+class TextureUnit {
+public:
+  TextureUnit() {
+    // load default check texture
+  }
+  void show(const ponos::Path &config_path) {
+    if (ImGui::Button(unit_name.c_str()))
+      igfd::ImGuiFileDialog::Instance()->OpenDialog(unit_name,
+                                                    "Choose File",
+                                                    ".jpg",
+                                                    config_path.cwd().fullName());
+    if (igfd::ImGuiFileDialog::Instance()->FileDialog(unit_name)) {
+      if (igfd::ImGuiFileDialog::Instance()->IsOk)
+        load(ponos::Path(igfd::ImGuiFileDialog::Instance()->GetFilePathName()));
+      igfd::ImGuiFileDialog::Instance()->CloseDialog(unit_name);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ponos::concat("View ", unit_name).c_str()))
+      show_view_ = !show_view_;
+    if (show_view_) {
+      ImGui::Begin(unit_name.c_str(), &show_view_);
+      texture.bind(GL_TEXTURE0);
+      ImGui::Image((void *) (intptr_t) (texture.textureObjectId()), {256, 256},
+                   {0, 1}, {1, 0});
+      ImGui::End();
+    }
+  }
+  void load(const ponos::Path &path) {
+    path_ = path;
+    texture = Texture::fromFile(path);
+  }
+  [[nodiscard]] Json to_json() const { return Json::object{{"unit_name", unit_name}, {"path", path_.fullName()}}; }
+
+  std::string unit_name = "GL_TEXTURE0";
+  Texture texture;
+private:
+  bool show_view_{false};
+  ponos::Path path_;
+};
+
 class ShaderEditor : public BaseApp {
 public:
   ShaderEditor() : BaseApp(800, 800) {
+    // texture views
+    for (int i = 0; i < 2; ++i)
+      texture_views[i].unit_name = ponos::concat("GL_TEXTURE", i);
     // editor
     auto lang = TextEditor::LanguageDefinition::GLSL();
     vertex_editor.SetLanguageDefinition(lang);
     fragment_editor.SetLanguageDefinition(lang);
     loadConfig(ponos::Path(std::string(SHADERS_PATH) + "/blinn_phong/blinn_phong.json"));
-    // setup program
-    program.addVertexAttribute("position", 0);
-    program.addVertexAttribute("normal", 1);
-    program.addVertexAttribute("texcoord", 2);
-    program.addUniform("Light.direction", 1);
-    program.addUniform("Light.point", 2);
-    program.addUniform("Light.ambient", 3);
-    program.addUniform("Light.diffuse", 4);
-    program.addUniform("Light.specular", 5);
-    program.addUniform("Material.kAmbient", 6);
-    program.addUniform("Material.kDiffuse", 7);
-    program.addUniform("Material.kSpecular", 8);
-    program.addUniform("Material.shininess", 9);
-    program.addUniform("cameraPosition", 10);
-    program.addUniform("model", 11);
-    program.addUniform("view", 12);
-    program.addUniform("projection", 13);
-    program.addUniform("screenResolution", 14);
     // setup scene
     setupMesh();
     buildShader();
@@ -259,33 +254,50 @@ public:
     showEditor(vertex_editor, "Vertex Shader", &show_vertex_editor);
     showEditor(fragment_editor, "Fragment Shader", &show_fragment_editor);
     // render object
-    glBindVertexArray(mesh.VAO);
-    mesh.vertex_buffer_.bind();
-    mesh.index_buffer_.bind();
-    mesh.vertex_buffer_.locateAttributes(program);
-
-    program.use();
-    program.setUniform("Light.point", light.point);
-    program.setUniform("Light.direction", light.direction);
-    program.setUniform("Light.ambient", light.ambient);
-    program.setUniform("Light.diffuse", light.diffuse);
-    program.setUniform("Light.specular", light.specular);
-    program.setUniform("Material.kAmbient", material.kAmbient);
-    program.setUniform("Material.kDiffuse", material.kDiffuse);
-    program.setUniform("Material.kSpecular", material.kSpecular);
-    program.setUniform("Material.shininess", material.shininess);
-    program.setUniform("model", ponos::transpose(ponos::scale(mesh.scale.x, mesh.scale.y, mesh.scale.z).matrix()));
-    program.setUniform("view",
-                       ponos::transpose(camera->getViewTransform().matrix()));
-    program.setUniform("projection",
-                       ponos::transpose(camera->getProjectionTransform().matrix()));
-    program.setUniform("cameraPosition", camera->getPosition());
-    program.setUniform("screenResolution",
-                       ponos::vec2(this->app_->viewports[0].width, this->app_->viewports[0].height));
-
+    mesh.program.use();
+    // attach textures
+    for (int i = 0; i < 2; ++i) {
+      auto uniform_name = ponos::concat("channel", i);
+      if (mesh.program.hasUniform(uniform_name)) {
+        mesh.program.setUniform(uniform_name, i);
+        texture_views[i].texture.bind(GL_TEXTURE0 + i);
+      }
+    }
+    if (mesh.program.hasUniform("light.point"))
+      mesh.program.setUniform("light.point", light.point);
+    if (mesh.program.hasUniform("light.direction"))
+      mesh.program.setUniform("light.direction", light.direction);
+    if (mesh.program.hasUniform("light.ambient"))
+      mesh.program.setUniform("light.ambient", light.ambient);
+    if (mesh.program.hasUniform("light.diffuse"))
+      mesh.program.setUniform("light.diffuse", light.diffuse);
+    if (mesh.program.hasUniform("light.specular"))
+      mesh.program.setUniform("light.specular", light.specular);
+    if (mesh.program.hasUniform("material.kAmbient"))
+      mesh.program.setUniform("material.kAmbient", material.kAmbient);
+    if (mesh.program.hasUniform("material.diffuse"))
+      mesh.program.setUniform("material.kDiffuse", material.kDiffuse);
+    if (mesh.program.hasUniform("material.kSpecular"))
+      mesh.program.setUniform("material.kSpecular", material.kSpecular);
+    if (mesh.program.hasUniform("material.shininess"))
+      mesh.program.setUniform("material.shininess", material.shininess);
+    if (mesh.program.hasUniform("model"))
+      mesh.program.setUniform("model", ponos::transpose(mesh.transform.matrix()));
+    if (mesh.program.hasUniform("view"))
+      mesh.program.setUniform("view",
+                              ponos::transpose(camera->getViewTransform().matrix()));
+    if (mesh.program.hasUniform("projection"))
+      mesh.program.setUniform("projection",
+                              ponos::transpose(camera->getProjectionTransform().matrix()));
+    if (mesh.program.hasUniform("cameraPosition"))
+      mesh.program.setUniform("cameraPosition", camera->getPosition());
+    if (mesh.program.hasUniform("screenResolution"))
+      mesh.program.setUniform("screenResolution",
+                              ponos::vec2(this->app_->viewports[0].width, this->app_->viewports[0].height));
+    glEnable(GL_DEPTH_TEST);
     mesh.draw();
-    light_object.light = &light;
-    light_object.render(camera);
+//    light_object.light = &light;
+//    light_object.render(camera);
   }
 
   void showInfo() {
@@ -333,17 +345,17 @@ public:
     int mesh_option = 0;
     if (ImGui::Combo("Mesh", (int *) &mesh_option, "Sphere\0Plane\0Terrain\0"))
       setupMesh(mesh_option);
-    ImGui::SliderFloat3("Scale", &mesh.scale[0], 0.0001, 100);
+//    ImGui::SliderFloat3("Scale", &mesh.scale[0], 0.0001, 100);
     ImGui::Separator();
     ImGui::Text("Light\n");
     ImGui::SliderFloat3("Position", &light.point.x, -5, 5);
     ImGui::SameLine();
-    if (ImGui::Button("Show Position"))
-      light_object.show_point = !light_object.show_point;
+//    if (ImGui::Button("Show Position"))
+//      light_object.show_point = !light_object.show_point;
     ImGui::SliderFloat3("Direction", &light.direction.x, -1, 1);
     ImGui::SameLine();
-    if (ImGui::Button("Show Direction"))
-      light_object.show_direction = !light_object.show_direction;
+//    if (ImGui::Button("Show Direction"))
+//      light_object.show_direction = !light_object.show_direction;
     ImGui::ColorEdit3("Ambient", &light.ambient[0]);
     ImGui::SameLine();
     if (ImGui::ArrowButton("light_ambient", ImGuiDir_Down))
@@ -359,7 +371,10 @@ public:
     ImGui::ColorEdit3("M Diffuse", &material.kDiffuse[0]);
     ImGui::ColorEdit3("M Specular", &material.kSpecular[0]);
     ImGui::SliderFloat("M Shininess", &material.shininess, 0.0, 300.0);
-    ImGui::End();
+    ImGui::Separator();
+    // Textures
+    for (auto &v : texture_views)
+      v.show(config_path);
   }
 
   void showConfigFileButtons() {
@@ -389,7 +404,9 @@ public:
       if (igfd::ImGuiFileDialog::Instance()->IsOk) {
         config_path = igfd::ImGuiFileDialog::Instance()->GetFilePathName(),
             ponos::FileSystem::writeFile(config_path.fullName(),
-                                         Json(Json::object{{"light", light}, {"material", material}}).dump());
+                                         Json(Json::object{{"light", light}, {"material", material},
+                                                           {"t0", texture_views[0]},
+                                                           {"t1", texture_views[1]}}).dump());
       }
       igfd::ImGuiFileDialog::Instance()->CloseDialog("SaveConfigKey");
     }
@@ -450,6 +467,17 @@ public:
 
       config_path = path;
 
+      // load textures
+      for (int i = 0; i < 2; ++i) {
+        auto tid = ponos::concat("t", i);
+        texture_views[i].unit_name = json[tid]["unit_name"].string_value();
+        if (texture_views[i].unit_name.empty())
+          texture_views[i].unit_name = ponos::concat("GL_TEXTURE", i);
+        auto tf = json[tid]["path"].string_value();
+        if (!tf.empty())
+          texture_views[i].load(ponos::Path(config_path.cwd() + tf));
+      }
+
       auto basename = config_path.cwd() + ponos::FileSystem::basename(config_path.fullName(), ".json");
 
       vertex_editor.SetText(ponos::FileSystem::readFile(ponos::concat(basename, ".vert")));
@@ -468,9 +496,9 @@ public:
     program_attempt.attach(fragment_shader);
     if (!program_attempt.link())
       return false;
-    program.destroy();
-    program.attach(vertex_shader);
-    program.attach(fragment_shader);
+    mesh.program.destroy();
+    mesh.program.attach(vertex_shader);
+    mesh.program.attach(fragment_shader);
     return true;
   }
 
@@ -482,7 +510,7 @@ public:
       switch (mesh_option) {
       case 0:raw_mesh = ponos::RawMeshes::icosphere(ponos::point3(), 1., 3, true, true);
         break;
-      case 1:raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XZ(), ponos::point3(), ponos::vec3(1, 0, 0), 1);
+      case 1:raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XY(), ponos::point3(), ponos::vec3(1, 0, 0), 1);
         break;
       case 2:raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XZ(), ponos::point3(), ponos::vec3(1, 0, 0), 20);
         for (int i = 0; i <= 20; ++i)
@@ -490,11 +518,31 @@ public:
             raw_mesh->positions[i * 21 * 3 + j * 3 + 1] = ponos::Perlin::at(ponos::point2(i, j) * 0.05);
         break;
       default: break;
-      };
-      mesh.setMesh(*raw_mesh);
+      }
+      // prepare mesh data
+      std::vector<float> vertex_data;
+      std::vector<u32> index_data;
+      circe::gl::setup_buffer_data_from_mesh(*raw_mesh, vertex_data, index_data);
+      mesh.vb.attributes = circe::gl::VertexBuffer::Attributes();
+      // describe vertex buffer
+      mesh.vb.attributes.push<ponos::point3>("position");
+      if (raw_mesh->normalDescriptor.count)
+        mesh.vb.attributes.push<ponos::vec3>("normal");
+      if (raw_mesh->texcoordDescriptor.count)
+        mesh.vb.attributes.push<ponos::point2>("uv");
+      // upload data
+      mesh.vb = vertex_data;
+      mesh.ib = index_data;
+      mesh.ib.element_count = index_data.size() / 3;
+      // bind attributes
+      mesh.vao.bind();
+      mesh.vb.bindAttributeFormats();
     }
   }
 
+  // Textures
+  TextureUnit texture_views[2];
+  bool show_texture_views[2]{false, false};
   // gui
   ponos::Path config_path;
   bool show_vertex_editor{true}, show_fragment_editor{true};
@@ -503,13 +551,12 @@ public:
   Light light;
   Material material;
   // object
-  MeshObject mesh;
+  Model mesh;
   // shader
   Shader vertex_shader;
   Shader fragment_shader;
-  Program program;
   // light object
-  LightObject light_object;
+//  LightObject light_object;
 };
 
 int main() {

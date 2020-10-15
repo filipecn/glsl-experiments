@@ -29,7 +29,7 @@ void main() {
   vec3 N = normalize(fNormal);
   vec3 L = normalize(light.direction);
   vec3 V = normalize(cameraPosition - fPosition);
-  vec3 H = normalize(L + V);
+  vec3 H = reflect(-L,V);
   // AMBIENT
   vec3 ambient = light.ambient;
   // DIFFUSE
@@ -56,6 +56,7 @@ void main() {
   				   specular * material.kSpecular +
   				   rim, 1.0);
 }
+
 
 
 

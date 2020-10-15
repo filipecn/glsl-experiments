@@ -36,3 +36,4 @@ Hopefully my cmake configurations will take care of all dependencies.
 ## Screenshots
 ![GitHub Logo](screenshots/toon_shader.png)
 ![GitHub Logo](screenshots/topographical_shader.png)
+![GitHub Logo](screenshots/normal_mapping.png)
