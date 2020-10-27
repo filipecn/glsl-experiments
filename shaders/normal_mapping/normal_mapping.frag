@@ -4,6 +4,9 @@ layout(location = 0) out vec4 fragColor;
 in vec3 fNormal;
 in vec3 fPosition;
 in vec2 fUV;
+in vec3 tLightPos;
+in vec3 tViewPos;
+in vec3 tFPos;
 
 struct Light {
     vec3 direction;// directional light direction
@@ -41,9 +44,10 @@ void main() {
     // R - direction of reflection (ignored)
     // (all vectors leave the surface)
     vec3 N = normalize(normal);
-    vec3 L = normalize(light.point - fPosition);
-    vec3 V = normalize(cameraPosition - fPosition);
+    vec3 L = normalize(tLightPos - tFPos);
+    vec3 V = normalize(tViewPos - tFPos);
     vec3 H =  reflect(-L, N);
+//    H =  normalize(L + V);
     // cosine of the angle between N and L is proportional to light intensity
     float lambertian = max(dot(N, L), 0.0);
     // specular reflection is proportional to V an H alignment

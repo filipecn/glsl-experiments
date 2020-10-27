@@ -254,48 +254,49 @@ public:
     showEditor(vertex_editor, "Vertex Shader", &show_vertex_editor);
     showEditor(fragment_editor, "Fragment Shader", &show_fragment_editor);
     // render object
-    mesh.program.use();
+    mesh_.program.use();
     // attach textures
     for (int i = 0; i < 2; ++i) {
       auto uniform_name = ponos::concat("channel", i);
-      if (mesh.program.hasUniform(uniform_name)) {
-        mesh.program.setUniform(uniform_name, i);
+      if (mesh_.program.hasUniform(uniform_name)) {
+        mesh_.program.setUniform(uniform_name, i);
         texture_views[i].texture.bind(GL_TEXTURE0 + i);
       }
     }
-    if (mesh.program.hasUniform("light.point"))
-      mesh.program.setUniform("light.point", light.point);
-    if (mesh.program.hasUniform("light.direction"))
-      mesh.program.setUniform("light.direction", light.direction);
-    if (mesh.program.hasUniform("light.ambient"))
-      mesh.program.setUniform("light.ambient", light.ambient);
-    if (mesh.program.hasUniform("light.diffuse"))
-      mesh.program.setUniform("light.diffuse", light.diffuse);
-    if (mesh.program.hasUniform("light.specular"))
-      mesh.program.setUniform("light.specular", light.specular);
-    if (mesh.program.hasUniform("material.kAmbient"))
-      mesh.program.setUniform("material.kAmbient", material.kAmbient);
-    if (mesh.program.hasUniform("material.diffuse"))
-      mesh.program.setUniform("material.kDiffuse", material.kDiffuse);
-    if (mesh.program.hasUniform("material.kSpecular"))
-      mesh.program.setUniform("material.kSpecular", material.kSpecular);
-    if (mesh.program.hasUniform("material.shininess"))
-      mesh.program.setUniform("material.shininess", material.shininess);
-    if (mesh.program.hasUniform("model"))
-      mesh.program.setUniform("model", ponos::transpose(mesh.transform.matrix()));
-    if (mesh.program.hasUniform("view"))
-      mesh.program.setUniform("view",
-                              ponos::transpose(camera->getViewTransform().matrix()));
-    if (mesh.program.hasUniform("projection"))
-      mesh.program.setUniform("projection",
-                              ponos::transpose(camera->getProjectionTransform().matrix()));
-    if (mesh.program.hasUniform("cameraPosition"))
-      mesh.program.setUniform("cameraPosition", camera->getPosition());
-    if (mesh.program.hasUniform("screenResolution"))
-      mesh.program.setUniform("screenResolution",
-                              ponos::vec2(this->app_->viewports[0].width, this->app_->viewports[0].height));
+    if (mesh_.program.hasUniform("light.point"))
+      mesh_.program.setUniform("light.point", light.point);
+    if (mesh_.program.hasUniform("light.direction"))
+      mesh_.program.setUniform("light.direction", light.direction);
+    if (mesh_.program.hasUniform("light.ambient"))
+      mesh_.program.setUniform("light.ambient", light.ambient);
+    if (mesh_.program.hasUniform("light.diffuse"))
+      mesh_.program.setUniform("light.diffuse", light.diffuse);
+    if (mesh_.program.hasUniform("light.specular"))
+      mesh_.program.setUniform("light.specular", light.specular);
+    if (mesh_.program.hasUniform("material.kAmbient"))
+      mesh_.program.setUniform("material.kAmbient", material.kAmbient);
+    if (mesh_.program.hasUniform("material.diffuse"))
+      mesh_.program.setUniform("material.kDiffuse", material.kDiffuse);
+    if (mesh_.program.hasUniform("material.kSpecular"))
+      mesh_.program.setUniform("material.kSpecular", material.kSpecular);
+    if (mesh_.program.hasUniform("material.shininess"))
+      mesh_.program.setUniform("material.shininess", material.shininess);
+    if (mesh_.program.hasUniform("model"))
+      mesh_.program.setUniform("model", ponos::transpose(mesh_.transform.matrix()));
+    if (mesh_.program.hasUniform("view"))
+      mesh_.program.setUniform("view",
+                               ponos::transpose(camera->getViewTransform().matrix()));
+    if (mesh_.program.hasUniform("projection"))
+      mesh_.program.setUniform("projection",
+                               ponos::transpose(camera->getProjectionTransform().matrix()));
+    if (mesh_.program.hasUniform("cameraPosition"))
+      mesh_.program.setUniform("cameraPosition", camera->getPosition());
+    if (mesh_.program.hasUniform("screenResolution"))
+      mesh_.program.setUniform("screenResolution",
+                               ponos::vec2(this->app_->viewports[0].width, this->app_->viewports[0].height));
     glEnable(GL_DEPTH_TEST);
-    mesh.draw();
+//    mesh_.draw();
+    model.draw();
 //    light_object.light = &light;
 //    light_object.render(camera);
   }
@@ -496,21 +497,34 @@ public:
     program_attempt.attach(fragment_shader);
     if (!program_attempt.link())
       return false;
-    mesh.program.destroy();
-    mesh.program.attach(vertex_shader);
-    mesh.program.attach(fragment_shader);
+    mesh_.program.destroy();
+    mesh_.program.attach(vertex_shader);
+    mesh_.program.attach(fragment_shader);
     return true;
   }
 
   void setupMesh(int mesh_option = 0) {
     static int last_option = -1;
     if (last_option != mesh_option) {
+      model = circe::Shapes::plane(ponos::Plane::XZ(),
+                                   ponos::point3(),
+                                   ponos::vec3(1, 0, 0),
+                                   1,
+                                   circe::shape_options::normal |
+                                       circe::shape_options::tangent_space);
       last_option = mesh_option;
       ponos::RawMeshSPtr raw_mesh;
       switch (mesh_option) {
       case 0:raw_mesh = ponos::RawMeshes::icosphere(ponos::point3(), 1., 3, true, true);
         break;
-      case 1:raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XY(), ponos::point3(), ponos::vec3(1, 0, 0), 1);
+      case 1:
+        model = circe::Shapes::plane(ponos::Plane::XY(),
+                                     ponos::point3(),
+                                     ponos::vec3(1, 0, 0),
+                                     1,
+                                     circe::shape_options::normal |
+                                         circe::shape_options::tangent_space);
+        raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XY(), ponos::point3(), ponos::vec3(1, 0, 0), 1);
         break;
       case 2:raw_mesh = ponos::RawMeshes::plane(ponos::Plane::XZ(), ponos::point3(), ponos::vec3(1, 0, 0), 20);
         for (int i = 0; i <= 20; ++i)
@@ -523,20 +537,20 @@ public:
       std::vector<float> vertex_data;
       std::vector<u32> index_data;
       circe::gl::setup_buffer_data_from_mesh(*raw_mesh, vertex_data, index_data);
-      mesh.vb.attributes = circe::gl::VertexBuffer::Attributes();
+      mesh_.vb.attributes = circe::gl::VertexBuffer::Attributes();
       // describe vertex buffer
-      mesh.vb.attributes.push<ponos::point3>("position");
+      mesh_.vb.attributes.push<ponos::point3>("position");
       if (raw_mesh->normalDescriptor.count)
-        mesh.vb.attributes.push<ponos::vec3>("normal");
+        mesh_.vb.attributes.push<ponos::vec3>("normal");
       if (raw_mesh->texcoordDescriptor.count)
-        mesh.vb.attributes.push<ponos::point2>("uv");
+        mesh_.vb.attributes.push<ponos::point2>("uv");
       // upload data
-      mesh.vb = vertex_data;
-      mesh.ib = index_data;
-      mesh.ib.element_count = index_data.size() / 3;
+      mesh_.vb = vertex_data;
+      mesh_.ib = index_data;
+      mesh_.ib.element_count = index_data.size() / 3;
       // bind attributes
-      mesh.vao.bind();
-      mesh.vb.bindAttributeFormats();
+      mesh_.vao.bind();
+      mesh_.vb.bindAttributeFormats();
     }
   }
 
@@ -551,7 +565,8 @@ public:
   Light light;
   Material material;
   // object
-  Model mesh;
+  Model mesh_;
+  circe::gl::SceneModel model;
   // shader
   Shader vertex_shader;
   Shader fragment_shader;
