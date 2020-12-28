@@ -232,6 +232,11 @@ private:
   ponos::Path path_;
 };
 
+struct UniformData {
+  u64 index;
+  Program::Uniform data;
+};
+
 class ShaderEditor : public BaseApp {
 public:
   ShaderEditor() : BaseApp(800, 800) {
@@ -243,6 +248,12 @@ public:
     vertex_editor.SetLanguageDefinition(lang);
     fragment_editor.SetLanguageDefinition(lang);
     loadConfig(ponos::Path(std::string(SHADERS_PATH) + "/blinn_phong/blinn_phong.json"));
+    // reserved uniforms
+    reserved_uniforms.insert("cameraPosition");
+    reserved_uniforms.insert("model");
+    reserved_uniforms.insert("view");
+    reserved_uniforms.insert("projection");
+    reserved_uniforms.insert("screenResolution");
     // setup scene
     setupMesh();
     buildShader();
@@ -263,24 +274,13 @@ public:
         texture_views[i].texture.bind(GL_TEXTURE0 + i);
       }
     }
-    if (mesh_.program.hasUniform("light.point"))
-      mesh_.program.setUniform("light.point", light.point);
-    if (mesh_.program.hasUniform("light.direction"))
-      mesh_.program.setUniform("light.direction", light.direction);
-    if (mesh_.program.hasUniform("light.ambient"))
-      mesh_.program.setUniform("light.ambient", light.ambient);
-    if (mesh_.program.hasUniform("light.diffuse"))
-      mesh_.program.setUniform("light.diffuse", light.diffuse);
-    if (mesh_.program.hasUniform("light.specular"))
-      mesh_.program.setUniform("light.specular", light.specular);
-    if (mesh_.program.hasUniform("material.kAmbient"))
-      mesh_.program.setUniform("material.kAmbient", material.kAmbient);
-    if (mesh_.program.hasUniform("material.diffuse"))
-      mesh_.program.setUniform("material.kDiffuse", material.kDiffuse);
-    if (mesh_.program.hasUniform("material.kSpecular"))
-      mesh_.program.setUniform("material.kSpecular", material.kSpecular);
-    if (mesh_.program.hasUniform("material.shininess"))
-      mesh_.program.setUniform("material.shininess", material.shininess);
+    for (const auto &u : vec3_uniform_names)
+      if (mesh_.program.hasUniform(u.first))
+        mesh_.program.setUniform(u.first, vec3_uniforms[u.second.index]);
+    for (const auto &u : f32_uniform_names)
+      if (mesh_.program.hasUniform(u.first))
+        mesh_.program.setUniform(u.first, f32_uniforms[u.second.index]);
+
     if (mesh_.program.hasUniform("model"))
       mesh_.program.setUniform("model", ponos::transpose(mesh_.transform.matrix()));
     if (mesh_.program.hasUniform("view"))
@@ -348,30 +348,14 @@ public:
       setupMesh(mesh_option);
 //    ImGui::SliderFloat3("Scale", &mesh.scale[0], 0.0001, 100);
     ImGui::Separator();
-    ImGui::Text("Light\n");
-    ImGui::SliderFloat3("Position", &light.point.x, -5, 5);
-    ImGui::SameLine();
-//    if (ImGui::Button("Show Position"))
-//      light_object.show_point = !light_object.show_point;
-    ImGui::SliderFloat3("Direction", &light.direction.x, -1, 1);
-    ImGui::SameLine();
-//    if (ImGui::Button("Show Direction"))
-//      light_object.show_direction = !light_object.show_direction;
-    ImGui::ColorEdit3("Ambient", &light.ambient[0]);
-    ImGui::SameLine();
-    if (ImGui::ArrowButton("light_ambient", ImGuiDir_Down))
-      light.diffuse = light.ambient;
-    ImGui::ColorEdit3("Diffuse", &light.diffuse[0]);
-    ImGui::ColorEdit3("Specular", &light.specular[0]);
-    ImGui::Separator();
-    ImGui::Text("Material\n");
-    ImGui::ColorEdit3("M Ambient", &material.kAmbient[0]);
-    ImGui::SameLine();
-    if (ImGui::ArrowButton("material_ambient", ImGuiDir_Down))
-      material.kDiffuse = material.kAmbient;
-    ImGui::ColorEdit3("M Diffuse", &material.kDiffuse[0]);
-    ImGui::ColorEdit3("M Specular", &material.kSpecular[0]);
-    ImGui::SliderFloat("M Shininess", &material.shininess, 0.0, 300.0);
+    ImGui::Text("Uniforms\n");
+    // Uniform Controls
+    for (const auto &name : ordered_uniform_names) {
+      if (vec3_uniform_names.count(name))
+        ImGui::ColorEdit3(name.c_str(), &vec3_uniforms[vec3_uniform_names[name].index][0]);
+      if (f32_uniform_names.count(name))
+        ImGui::SliderFloat(name.c_str(), &f32_uniforms[f32_uniform_names[name].index], 0.0, 1.0);
+    }
     ImGui::Separator();
     // Textures
     for (auto &v : texture_views)
@@ -500,6 +484,39 @@ public:
     mesh_.program.destroy();
     mesh_.program.attach(vertex_shader);
     mesh_.program.attach(fragment_shader);
+    if (!mesh_.program.link())
+      exit(-1);
+    // reset uniforms
+    ordered_uniform_names.clear();
+    const auto &uniforms = mesh_.program.uniforms();
+    std::unordered_map<std::string, UniformData> vec3_uniform_names_tmp;
+    std::vector<vec3> vec3_uniforms_tmp;
+    std::unordered_map<std::string, UniformData> f32_uniform_names_tmp;
+    std::vector<f32> f32_uniforms_tmp;
+    for (const auto &u : uniforms) {
+      if (reserved_uniforms.count(u.name))
+        continue;
+      auto name = u.name;
+      ordered_uniform_names.emplace_back(name);
+      if (u.type == GL_FLOAT_VEC3) {
+        vec3_uniform_names_tmp[name] = {vec3_uniforms_tmp.size(), u};
+        if (vec3_uniform_names.count(name))
+          vec3_uniforms_tmp.emplace_back(vec3_uniforms[vec3_uniform_names[name].index]);
+        else
+          vec3_uniforms_tmp.emplace_back();
+      }
+      if (u.type == GL_FLOAT) {
+        f32_uniform_names_tmp[name] = {f32_uniforms_tmp.size(), u};
+        if (f32_uniform_names.count(name))
+          f32_uniforms_tmp.emplace_back(f32_uniforms[f32_uniform_names[name].index]);
+        else
+          f32_uniforms_tmp.emplace_back();
+      }
+    }
+    vec3_uniform_names = std::move(vec3_uniform_names_tmp);
+    f32_uniform_names = std::move(f32_uniform_names_tmp);
+    vec3_uniforms = std::move(vec3_uniforms_tmp);
+    f32_uniforms = std::move(f32_uniforms_tmp);
     return true;
   }
 
@@ -516,6 +533,8 @@ public:
       ponos::RawMeshSPtr raw_mesh;
       switch (mesh_option) {
       case 0:raw_mesh = ponos::RawMeshes::icosphere(ponos::point3(), 1., 3, true, true);
+
+        model = circe::Shapes::icosphere(3, circe::shape_options::normal | circe::shape_options::uv);
         break;
       case 1:
         model = circe::Shapes::plane(ponos::Plane::XY(),
@@ -570,6 +589,16 @@ public:
   // shader
   Shader vertex_shader;
   Shader fragment_shader;
+  // reserved uniforms
+  std::set<std::string> reserved_uniforms;
+  // uniforms
+  std::vector<std::string> ordered_uniform_names;
+  // name, {id, array_size}
+  std::unordered_map<std::string, UniformData> vec3_uniform_names;
+  std::vector<vec3> vec3_uniforms;
+  // name, {id, array_size}
+  std::unordered_map<std::string, UniformData> f32_uniform_names;
+  std::vector<f32> f32_uniforms;
   // light object
 //  LightObject light_object;
 };

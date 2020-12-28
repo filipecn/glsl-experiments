@@ -24,6 +24,7 @@ include(ConfigCompilerFlags)
 include(ExternalProject)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/ext")
 include(ponos)
+include(circe)
 include(json11)
 ##########################################
 ##               sources                ##
@@ -36,7 +37,7 @@ target_compile_definitions(glsl_editor PUBLIC
         -DMODELS_PATH="${CMAKE_CURRENT_SOURCE_DIR}"
         -DTEXTURES_PATH="${CMAKE_CURRENT_SOURCE_DIR}"
         )
-#add_dependencies(glsl_editor ponos)
-target_include_directories(glsl_editor PUBLIC ${PONOS_INCLUDES} ${JSON11_INCLUDES})
-target_link_libraries(glsl_editor  ${PONOS_LIBRARIES} ${JSON11_LIBRARIES})
+add_dependencies(glsl_editor ponos circe)
+target_include_directories(glsl_editor PUBLIC ${PONOS_INCLUDES} ${CIRCE_INCLUDES} ${JSON11_INCLUDES})
+target_link_libraries(glsl_editor  ${CIRCE_LIBRARIES} ${PONOS_LIBRARIES} ${JSON11_LIBRARIES})
 
